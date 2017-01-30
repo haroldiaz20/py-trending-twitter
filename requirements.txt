@@ -1,0 +1,6 @@
+numpy 
+ijson
+psycopg2
+python-dateutil
+tweepy
+nltk
