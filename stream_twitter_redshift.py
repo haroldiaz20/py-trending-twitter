@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from tweepy import Stream
 from tweepy import OAuthHandler
 from tweepy.streaming import StreamListener
@@ -14,14 +15,45 @@ import ijson
 import operator 
 import json
 import string
+import pandas as pd
 from collections import Counter
 from collections import OrderedDict
 import threading
-#from impala.dbapi import connect
+import warnings
+warnings.filterwarnings("ignore", category=UnicodeWarning)
+
+import boto3
 
 
-lista_data = []
+print(datetime.now().strftime("%a %b %d %H:%M:%S %z %Y"))
+
+
+AWS_ACCESS_KEY_ID = 'AKIAJDKACGYI7CMFVNWQ'
+AWS_SECRET_ACCESS_KEY = '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'
+
+client = boto3.client('s3',
+    # Hard coded strings as credentials, not recommended.
+    aws_access_key_id='AKIAJDKACGYI7CMFVNWQ',
+    aws_secret_access_key='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'
+)
+
+bucket_name = AWS_ACCESS_KEY_ID.lower() + '-data_twitter'
+
+
+
+
+lista_data_procesada = []
 lista_data_alt = []
+
+file_name = ""
+
+## Variable global del Thread
+t = ""
+d = ""
+
+## variable contador general, nos ayudará a saber en qué posición se quedó el arreglo para poder eliminarl los primeros 'cont' elementos del array
+cont = -1
+contB = -1
 
 ckey = 'gHc857rgGXVeXIOaPrw6JrHrt'
 csecret = 'Ehug0Ogf3Y5c2CrDlHt3sZOPmu55AMLY3TFxzcUhrfISwyg0vx'
@@ -47,7 +79,7 @@ def create_conn(*args,**kwargs):
         
 conn = create_conn(config=config)
 
-
+cursor = None
 
 class listener(StreamListener):
     
@@ -56,15 +88,6 @@ class listener(StreamListener):
             with open('tweets.txt', 'a') as f:
                 f.write(data)
             lista_data_alt.append(data)
-            ##print(data)
-            ##return True
-            
-            #cursor = conn.cursor()
-            #print(data)
-            #dataJson = json.load(data)
-
-            ##print(json.dumps(dataJson, indent=4)) 
-            ##return Truejson_load = json.loads(data)
             
             return True
         except BaseException as e:
@@ -75,7 +98,6 @@ class listener(StreamListener):
     
     def on_error(self, status):
         print(status)
-
     
         
         
@@ -120,90 +142,98 @@ def trending_words():
 
 def insertar_data(all=False):
     try:
-        #cursor = conn.cursor()
+        print(threading.currentThread().getName())
         i = 0
         n = 1000
         lista = lista_data_alt
         longitud = len(lista)
+        global cont
+        global t
+        global file_name
+
+        data_procesada = []
+
+        file_name = "data_twitter_" + str(time.time()) + ".txt"
         
-        if longitud > 0:
-            print("hay elementos")
-            if all == True:
-                for item in lista:
-                    with open('data_alt.txt', 'a') as f:
-                        #print(item['usuario'])
-                        data_procesada = procesar_data_tuits(item)
-                        f.write(data_procesada['usuario'] + "\n")
-                        insertar_en_bd(data_procesada)
-                
-            else:               
-                for item in lista:
-                    if i <= n:
-                        with open('data_alt.txt', 'a') as f:
-                            #print(item['usuario'])
-                            data_procesada = procesar_data_tuits(item)
-                            f.write(data_procesada['usuario'] + "\n") 
-                            insertar_en_bd(data_procesada)
-                                                 
-                    else:
-                        break                      
-                    
-                i = i + 1
-        else:
-            print("no hay elementos")
-
-
-
-        if longitud >= n:
-            del lista_data_alt[:n]
-        else:
-            del lista_data_alt[:longitud]
-
-            
-        
-            
-        #conn.commit()
-        #cursor.close()
-        # Reiniciamos el array
-        #lista_data = []
-        #print("palabras comunes")
-        #print(len(lista_data))
-        threading.Timer(7.0, insertar_data).start()
-    except BaseException as e:
-            print('error,' + str(e))
-
-def insertar_en_bd(data_collection):
-
-    try:
-        
-        tweetId = data_collection['id']
-        fechaTuit = data_collection['fecha']
-        horaTuit = data_collection['hora']
-        userName = data_collection['usuario']
-        followers = data_collection['followers']
-        tweet = data_collection['mensaje']
-        favoritos = data_collection['favoritos']
-        retweets = data_collection['retweets']
-        pais = data_collection['country']
-        ubicacion = data_collection['ubicacion']
-        latitud = data_collection['latitud']
-        longitud = data_collection['longitud']
-        candidato = data_collection['candidato']
-
         cursor = conn.cursor()
-        ## insertamos la data
-        cursor.execute("""INSERT INTO bigdatatwitter(codigo,fecha,hora,usuario,followers,mensaje,favoritos,retweets,country,ubicacion,latitud,longitud, candidato)
-VALUES (%s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s);""",[tweetId, fechaTuit, horaTuit, userName, followers, tweet, favoritos, retweets, pais,
-                                                            ubicacion, latitud,longitud, candidato])
-        conn.commit()
-        cursor.close()
+        if isinstance(t, threading.Thread):
+            print("Es instancia de un Thread")
+##            if t.isAlive():
+##                print("Thread " + threading.currentThread().getName() + " is alive")
+##                print("Esperamos a que termine el thread...")
+##            else:
+            print("Thread " + threading.currentThread().getName() + " is NOT alive")
 
+            if longitud > 0:
+                print("hay elementos")
+                ## Primera iteracion, no eliminamos los elementos porque no hemos isertado nada
+                if cont < 0:
+                    print("Primera Iteracion, no se procesa nada")
+                else:
+                    print("Otra Iteracion, se eliminan los primeros " + str(cont) + " elementos")
+                    ## Eliminamos los primeros cont elementos del array, puesto que ya se insertaron
+                    if longitud >= cont:
+                        del lista_data_alt[:cont]
+                    
+                ## Reiniciamos el contador
+                cont = 0
+                if all is True:
+                    ## Ha habido una exception, entonces debemos de procesar todos los elementos del array
+                    for item in lista:
+                        data_procesada = procesar_data_tuits(item)
+                        lista_data_procesada.append(data_procesada)
+                        cont = cont + 1
+                    
+                else:               
+                    for item in lista:
+                        if cont <= n:
+                            data_procesada.append(procesar_data_tuits(item))
+                        else:
+                            break                               
+                    
+                        #data_procesada = procesar_data_tuits(item)
+                        #lista_data_procesada.append(data_procesada)
+                        cont = cont + 1
+                        
+                    data_frame = pd.DataFrame(data_procesada)
+                    data_frame.to_csv(file_name, header=False, encoding='utf-8', sep='|', float_format='%.7f', index=False)
+                    insertar_en_bd(file_name)
+            
+            else:
+                print("No hay elementos en el array")
+                
+        else:
+            print("No es instancia de Thread")
+        
+        
+        t = threading.Timer(10.0, insertar_data)
+        ##t.daemon = True
+        t.start()    
+        
     except BaseException as e:
-        print('error al insertar,' + str(e))
+            print('error al procesar,' + str(e))
+            
+
+def insertar_en_bd(file_name_param):
+    try:
+                       
+        if(file_name_param != "" and file_name_param is not None):
+            print("Uploading " + file_name_param + " ...")
+            time_start = time.time()
+            client.upload_file(file_name_param,bucket_name, file_name_param)
+            time_end = time.time()
+            print("Data uploaded correctly")    
+            print "This took %.3f seconds" % (time_end - time_start)
+        else:
+            print("File name incorrect")
+
+       
+    except BaseException as e:
+        print('error al subir archivo, ' + str(e))
 
 
 def procesar_data_tuits(data):
-    
+
     json_load = json.loads(data)
             
     if 'text' in json_load:
@@ -212,15 +242,22 @@ def procesar_data_tuits(data):
         texts = ''
     #coded = texts.encode('utf-8')
     #s = str(coded)
-    tweet = str(texts.encode('utf-8'))
-    
-    if 'created_at' in json_load:
-        if json_load['created_at'] is None:
-            tweetDate = datetime.datetime.now().strftime("%a %b %d %H:%M:%S %z %Y")
+    tweet = texts.encode("utf-8")
+    tweetDate = ""
+    try:
+        if 'created_at' in json_load:
+            if json_load['created_at'] is None:
+                tweetDate = datetime.now().strftime("%a %b %d %H:%M:%S %z %Y")
+            else:
+                tweetDate = str(json_load['created_at'])
         else:
-            tweetDate = str(json_load['created_at'])
-    else:
+            tweetDate = datetime.now().strftime("%a %b %d %H:%M:%S %z %Y")
+
+        
+    except BaseException as e:
+        print('datetime exception')
         tweetDate = datetime.now().strftime("%a %b %d %H:%M:%S %z %Y")
+        return True
         
     parsed_date = parser.parse(tweetDate)
     # Obtenemos la fecha y la hora del tuit por separado
@@ -242,7 +279,7 @@ def procesar_data_tuits(data):
     else:
         ## NOMBRE DEL USUARIO
         if 'screen_name' in json_load['user']:
-            userName = str(json_load['user']['screen_name'])
+            userName = str(json_load['user']['screen_name'].encode('utf-8'))
         else:
             userName = ""
             
@@ -298,47 +335,37 @@ def procesar_data_tuits(data):
         
     candidato = 0
 
-    
-    
-    ## insertamos la data
-    ##cursor.execute("""INSERT INTO bigdatatwitter(codigo,fecha,hora,usuario,followers,mensaje,favoritos,retweets,country,ubicacion,latitud,longitud, candidato)
-##VALUES (%s, %s, %s, %s, %s,%s, %s, %s, %s, %s, %s, %s, %s);""",[tweetId, fechaTuit, horaTuit, userName, followers, tweet, favoritos, retweets, pais,
-##                                                            ubicacion, latitud,longitud, candidato])
-##            conn.commit()
+    ## Eliminamos los espacios del texto del tuit
+    texto_procesado = tweet.replace('\n', ' ').replace('\r', '')
     
     data_collection = OrderedDict()
     data_collection['id'] = tweetId
     data_collection['fecha'] = fechaTuit
     data_collection['hora'] = horaTuit
     data_collection['usuario'] = userName
-    data_collection['followers'] = followers
-    data_collection['mensaje'] = tweet
-    data_collection['favoritos'] = favoritos
-    data_collection['retweets'] = retweets
+    data_collection['followers'] = int(followers)
+    data_collection['mensaje'] = texto_procesado
+    data_collection['favoritos'] = int(favoritos)
+    data_collection['retweets'] = int(retweets)
     data_collection['country'] = pais
     data_collection['ubicacion'] =  ubicacion
     data_collection['latitud'] = latitud
     data_collection['longitud'] = longitud
-    data_collection['candidato'] = candidato
+    data_collection['candidato'] = int(candidato)
 
     return data_collection
 
-    #print(len(lista_data))
-
-    #self.trending_words()
-    #time.sleep(5)
-    #cursor.close()
 
 
     
 #trending_words()
-insertar_data()
 
+insertar_data()
 
 auth = OAuthHandler(ckey, csecret)
 auth.set_access_token(atoken, asecret)
 twitterStream = Stream(auth, listener())
-twitterStream.filter(track=["trump"])
+twitterStream.filter(track=[u"trump"], languages=["en"])
 
 
 
