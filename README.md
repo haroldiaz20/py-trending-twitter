@@ -2,11 +2,13 @@
 Will stream the data from twitter and allows to save into a db on AWS Redshit
 
 # Instalation
-Just clone the repo and create a virtualenv
-
+1. Just clone the repo and create a virtualenv
+2. Crear un directorio virtual
+```
 python -m venv virtualenvname
+```
+3. Activate the virtualenv
 
-Activate the virtualenv
-
-virtualenvname\Scripta\activate
-
+```
+vitualenvname\Scripts\activate
+```
