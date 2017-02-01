@@ -37,7 +37,7 @@ client = boto3.client('s3',
     aws_secret_access_key='7+VlcIuuzzlF0VJ16XsFOSD28/Ax2UwtH3bcLPze'
 )
 
-bucket_name = AWS_ACCESS_KEY_ID.lower() + '-data_twitter'
+bucket_name = "datatwitter"
 
 
 
@@ -149,11 +149,11 @@ def insertar_data(all=False):
         longitud = len(lista)
         global cont
         global t
-        global file_name
+       
 
         data_procesada = []
 
-        file_name = "data_twitter_" + str(time.time()) + ".txt"
+        file_name = "data_twitter_" + str(time.time()) + ".csv"
         
         cursor = conn.cursor()
         if isinstance(t, threading.Thread):
@@ -184,7 +184,8 @@ def insertar_data(all=False):
                         lista_data_procesada.append(data_procesada)
                         cont = cont + 1
                     
-                else:               
+                else:
+                    ## Nos aseguramos de iterar solo los elementos del array
                     for item in lista:
                         if cont <= n:
                             data_procesada.append(procesar_data_tuits(item))
@@ -224,11 +225,23 @@ def insertar_en_bd(file_name_param):
             time_end = time.time()
             print("Data uploaded correctly")    
             print "This took %.3f seconds" % (time_end - time_start)
+
+            time.sleep(3)
+            
+            cursor = conn.cursor()
+            
+            query = """copy bigdata from 's3://datatwitter/""" + file_name_param + """' credentials 'aws_iam_role=arn:aws:iam::388344987295:role/marco' delimiter '|' region 'us-west-2';"""
+            cursor.execute(query)
+
+            conn.commit()
+            cursor.close()
+            
         else:
             print("File name incorrect")
 
        
     except BaseException as e:
+        cursor.close()
         print('error al subir archivo, ' + str(e))
 
 
@@ -336,7 +349,7 @@ def procesar_data_tuits(data):
     candidato = 0
 
     ## Eliminamos los espacios del texto del tuit
-    texto_procesado = tweet.replace('\n', ' ').replace('\r', '')
+    texto_procesado = tweet.replace('\n', ' ').replace('\r', '').replace('|', ' ')
     
     data_collection = OrderedDict()
     data_collection['id'] = tweetId
@@ -351,7 +364,6 @@ def procesar_data_tuits(data):
     data_collection['ubicacion'] =  ubicacion
     data_collection['latitud'] = latitud
     data_collection['longitud'] = longitud
-    data_collection['candidato'] = int(candidato)
 
     return data_collection
 
@@ -365,7 +377,7 @@ insertar_data()
 auth = OAuthHandler(ckey, csecret)
 auth.set_access_token(atoken, asecret)
 twitterStream = Stream(auth, listener())
-twitterStream.filter(track=[u"trump"], languages=["en"])
+twitterStream.filter(track=[u"trump"])
 
 
 
