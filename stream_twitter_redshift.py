@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+
 from tweepy import Stream
 from tweepy import OAuthHandler
 from tweepy.streaming import StreamListener
@@ -9,6 +9,7 @@ from nltk.corpus import stopwords
 from datetime import datetime
 from dateutil import parser
 import sys
+import os
 import psycopg2
 import time
 import ijson
@@ -24,6 +25,21 @@ warnings.filterwarnings("ignore", category=UnicodeWarning)
 
 import boto3
 
+    
+reload(sys)
+sys.setdefaultencoding('UTF8')
+
+
+trend = ""
+
+def ingresar_palabra():
+    global trend
+    trend = raw_input("\tIngrese una palabra para filtrar los tuits: ")
+
+
+while str(trend) == "":
+    print("\tINGRESAR PALABRA...")
+    ingresar_palabra()
 
 print(datetime.now().strftime("%a %b %d %H:%M:%S %z %Y"))
 
@@ -37,7 +53,7 @@ client = boto3.client('s3',
     aws_secret_access_key='7+VlcIuuzzlF0VJ16XsFOSD28/Ax2UwtH3bcLPze'
 )
 
-bucket_name = AWS_ACCESS_KEY_ID.lower() + '-data_twitter'
+bucket_name = "datatwitter"
 
 
 
@@ -51,7 +67,7 @@ file_name = ""
 t = ""
 d = ""
 
-## variable contador general, nos ayudará a saber en qué posición se quedó el arreglo para poder eliminarl los primeros 'cont' elementos del array
+## variable contador general, nos ayudara a saber en que posicion se quedo el arreglo para poder eliminarl los primeros 'cont' elementos del array
 cont = -1
 contB = -1
 
@@ -128,14 +144,14 @@ def trending_words():
             #print(count_all.most_common(500))
 
             comunes = count_all.most_common(10)
-            #for comun in comunes:
+            for comun in comunes:
                 #val
-                #query_insert = cursor2.execute("""INSERT INTO words(palabra,repeticiones) VALUES(%s,%s);""", [comun[0].decode().encode('utf-8'), int(comun[1])])
+                query_insert = cursor2.execute("""INSERT INTO words(palabra,repeticiones) VALUES(%s,%s);""", [comun[0].decode().encode('utf-8'), int(comun[1])])
                 #print(str(comun[0]))
                 #print(int(comun[1]))
             
             cursor2.close()
-            threading.Timer(5.0, trending_words).start()
+            threading.Timer(10.0, trending_words).start()
         except BaseException as e:
             print('error,' + str(e))
 
@@ -149,11 +165,11 @@ def insertar_data(all=False):
         longitud = len(lista)
         global cont
         global t
-        global file_name
+       
 
         data_procesada = []
 
-        file_name = "data_twitter_" + str(time.time()) + ".txt"
+        file_name = "data_twitter_" + str(time.time()) + ".csv"
         
         cursor = conn.cursor()
         if isinstance(t, threading.Thread):
@@ -184,7 +200,8 @@ def insertar_data(all=False):
                         lista_data_procesada.append(data_procesada)
                         cont = cont + 1
                     
-                else:               
+                else:
+                    ## Nos aseguramos de iterar solo los elementos del array
                     for item in lista:
                         if cont <= n:
                             data_procesada.append(procesar_data_tuits(item))
@@ -206,7 +223,7 @@ def insertar_data(all=False):
             print("No es instancia de Thread")
         
         
-        t = threading.Timer(10.0, insertar_data)
+        t = threading.Timer(5.0, insertar_data)
         ##t.daemon = True
         t.start()    
         
@@ -224,11 +241,28 @@ def insertar_en_bd(file_name_param):
             time_end = time.time()
             print("Data uploaded correctly")    
             print "This took %.3f seconds" % (time_end - time_start)
+
+            time.sleep(3)
+            
+            cursor = conn.cursor()
+            
+            query = """copy bigdata from 's3://datatwitter/""" + file_name_param + """' credentials 'aws_iam_role=arn:aws:iam::388344987295:role/marco' delimiter '|' region 'us-west-2';"""
+            cursor.execute(query)
+
+            conn.commit()
+            cursor.close()
+
+            if os.path.exists(file_name_param):
+                os.remove(file_name_param)
+            else:
+                print("Sorry, I can not remove %s file." % file_name_param)
+                        
         else:
             print("File name incorrect")
 
        
     except BaseException as e:
+        cursor.close()
         print('error al subir archivo, ' + str(e))
 
 
@@ -243,6 +277,7 @@ def procesar_data_tuits(data):
     #coded = texts.encode('utf-8')
     #s = str(coded)
     tweet = texts.encode("utf-8")
+    #tweet = unicode(tweet, errors='ignore')
     tweetDate = ""
     try:
         if 'created_at' in json_load:
@@ -303,7 +338,7 @@ def procesar_data_tuits(data):
     else:
         retweets = int(json_load['retweet_count'])
 
-    ## UBICACIÓN DEL TUIT         
+    ## UBICACION DEL TUIT         
     latitud = 0.0000
     longitud = 0.0000
 
@@ -319,7 +354,7 @@ def procesar_data_tuits(data):
             longitud = float(json_load['geo']['coordinates'][0])
             
 
-    ## PAÍS
+    ## PAIS
     if 'place' in json_load:
         location = json_load['place']
     else:
@@ -336,7 +371,7 @@ def procesar_data_tuits(data):
     candidato = 0
 
     ## Eliminamos los espacios del texto del tuit
-    texto_procesado = tweet.replace('\n', ' ').replace('\r', '')
+    texto_procesado = tweet.replace('\n', ' ').replace('\r', '').replace('|', ' ')
     
     data_collection = OrderedDict()
     data_collection['id'] = tweetId
@@ -351,21 +386,21 @@ def procesar_data_tuits(data):
     data_collection['ubicacion'] =  ubicacion
     data_collection['latitud'] = latitud
     data_collection['longitud'] = longitud
-    data_collection['candidato'] = int(candidato)
 
     return data_collection
 
 
 
     
-#trending_words()
+trending_words()
 
 insertar_data()
+
 
 auth = OAuthHandler(ckey, csecret)
 auth.set_access_token(atoken, asecret)
 twitterStream = Stream(auth, listener())
-twitterStream.filter(track=[u"trump"], languages=["en"])
+twitterStream.filter(track=[trend])
 
 
 
